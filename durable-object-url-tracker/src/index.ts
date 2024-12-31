@@ -30,9 +30,11 @@ export class UrlTracker extends DurableObject {
 
 		this.sql.exec(`CREATE TABLE IF NOT EXISTS settings(
 		  id    INTEGER PRIMARY KEY,
-		  key  NUMBER
+		  key  TEXT,
 		  value TEXT
-		);`);
+		);
+
+		`);
 	}
 
 	/**
@@ -42,17 +44,20 @@ export class UrlTracker extends DurableObject {
 	 * @param name - The name provided to a Durable Object instance from a Worker
 	 * @returns The greeting to be sent back to the Worker
 	 */
-	async sayHello(name: string): Promise<string> {
-		return `Hello, ${name}!`;
-	}
 
 	async getDestinationUrl(): Promise<string> {
-		const result = this.sql.exec("SELECT value FROM Settings WHERE key = 'destination_url';").toArray()[0];
+		const result = this.sql.exec("SELECT value FROM settings WHERE key='destination_url';").toArray()[0];
 		return result.value as string;
+	}
+
+	async insertUrl(value: string){
+		// this.sql.exec("UPDATE settings SET value = ? WHERE key = 'destination_url'", [value]).toArray()[0];
+		this.sql.exec("INSERT INTO settings (key, value) VALUES ('destination_url', ?)", [value]).toArray()[0];
 	}
 }
 
 import home from './ui/home.html';
+import { nanoid } from 'nanoid'
 
 export default {
 	/**
@@ -67,20 +72,41 @@ export default {
 		const url = new URL(request.url);
 		if (url.pathname === '/') {
 			return new Response(home, { headers: { 'Content-Type': 'text/html' } });
-		}
+		} else if (url.pathname === '/shorten' && request.method === 'POST') {
+			const formData = await request.formData();
+			const longUrl = formData.get('url') as string;
 
-		// We will create a `DurableObjectId` using the pathname from the Worker request
-		// This id refers to a unique instance of our 'MyDurableObject' class above
-		let id: DurableObjectId = env.MY_DURABLE_OBJECT.idFromName(new URL(request.url).pathname);
+			console.log("LONG: ", longUrl);
 
-		// This stub creates a communication channel with the Durable Object instance
-		// The Durable Object constructor will be invoked upon the first call for a given id
-		let stub = env.MY_DURABLE_OBJECT.get(id);
+			if (!longUrl) {
+				return new Response('Invalid URL', { status: 400 });
+			}
 
-		// We call the `sayHello()` RPC method on the stub to invoke the method on the remote
-		// Durable Object instance
-		let destinationUrl = await stub.getDestinationUrl();
+			const shortCode = nanoid(8);
+			let id: DurableObjectId = env.URL_TRACKER.idFromName(shortCode);
+			let stub = env.URL_TRACKER.get(id);
+			stub.insertUrl(longUrl);
 
-		return Response.redirect(destinationUrl, 301);
+			const shortUrl = `${url.origin}/${shortCode}`;
+
+			return new Response(`<p>Shortened URL: <a href="${shortUrl}" target="_blank">${shortUrl}</a></p>`, {
+				headers: { 'Content-Type': 'text/html' },
+			});
+		} else if (url.pathname.startsWith('/') && url.pathname.length > 8) {
+
+			console.log(request.headers)
+			const shortCode = url.pathname.substring(1);
+			let id: DurableObjectId = env.URL_TRACKER.idFromName(shortCode);
+			let stub = env.URL_TRACKER.get(id);
+			const longUrl = await stub.getDestinationUrl();
+
+			if (longUrl) {
+			  return Response.redirect(longUrl, 302);
+			} else {
+			  return new Response('URL not found', { status: 404 });
+			}
+		  } else {
+			return new Response('Not Found', { status: 404 });
+		  }
 	},
 } satisfies ExportedHandler<Env>;
