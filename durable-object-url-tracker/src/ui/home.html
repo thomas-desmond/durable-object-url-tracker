@@ -1,0 +1,27 @@
+
+declare module '*.html' {
+
+	const content: string;
+
+	export default content;
+
+  }
+
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>URL Shortener</title>
+		<script src="https://unpkg.com/htmx.org"></script>
+	</head>
+	<body>
+		<h1>URL Shortener</h1>
+		<form hx-post="/shorten" hx-target="#result">
+			<label for="url">Enter URL to shorten:</label>
+			<input type="url" id="url" name="url" required />
+			<button type="submit">Shorten</button>
+		</form>
+		<div id="result"></div>
+	</body>
+</html>
