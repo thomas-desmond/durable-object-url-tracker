@@ -60,7 +60,10 @@ export class UrlTracker extends DurableObject {
 	}
 
 	async insertUrl(value: string) {
-		this.sql.exec("UPDATE settings SET value = ? WHERE key = 'destination_url'", [value]).toArray()[0];
+		const anything = this.sql.exec("UPDATE settings SET value = ? WHERE key = 'destination_url'", [value]);
+		// const anything = this.sql.exec("INSERT INTO settings (key, value) VALUES ('destination_url', ?)", [value]);
+		// return anything;
+
 	}
 
 	async getReferrals(): Promise<Record<string, SqlStorageValue>[]> {
@@ -71,7 +74,7 @@ export class UrlTracker extends DurableObject {
 
 import home from './ui/home.html';
 import { nanoid } from 'nanoid';
-import { generateAdminPage as generateAdminPageHtml } from './lib/admin';
+import { generateAdminPageHtml } from './lib/admin';
 
 export default {
 	/**
@@ -90,8 +93,6 @@ export default {
 			const formData = await request.formData();
 			const longUrl = formData.get('url') as string;
 
-			console.log('LONG: ', longUrl);
-
 			if (!longUrl) {
 				return new Response('Invalid URL', { status: 400 });
 			}
@@ -99,7 +100,7 @@ export default {
 			const shortCode = nanoid(8);
 			let id: DurableObjectId = env.URL_TRACKER.idFromName(shortCode);
 			let stub = env.URL_TRACKER.get(id);
-			stub.insertUrl(longUrl);
+			await stub.insertUrl(longUrl);
 
 			const shortUrl = `${url.origin}/${shortCode}`;
 
@@ -113,14 +114,11 @@ export default {
 			const referrals = await stub.getReferrals() as { referrer: string, count: number}[]
 			const destinationUrl = await stub.getDestinationUrl();
 
-			console.log("Short Code: ", shortCode);
-			console.log("Referalllllll: ", referrals);
-
 			const adminPage = generateAdminPageHtml(destinationUrl, shortCode, referrals)
 			return new Response(adminPage, { headers: { 'Content-Type': 'text/html' } });
 
 		} else if (url.pathname.startsWith('/') && url.pathname.length > 8) {
-			console.log("HEADERS: ", request);
+			console.log("Referrer: ", request.headers.get('Referer'));
 			const shortCode = url.pathname.substring(1);
 			let id: DurableObjectId = env.URL_TRACKER.idFromName(shortCode);
 			let stub = env.URL_TRACKER.get(id);

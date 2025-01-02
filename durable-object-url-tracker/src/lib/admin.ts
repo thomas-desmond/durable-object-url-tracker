@@ -1,6 +1,6 @@
 
 
-export function generateAdminPage(destinationUrl: string, shortCode: string, referrals: { referrer: string, count: number}[]): string {
+export function generateAdminPageHtml(destinationUrl: string, shortCode: string, referrals: { referrer: string, count: number}[]): string {
 
 
 	const html = `
