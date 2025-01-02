@@ -41,8 +41,6 @@ export class UrlTracker extends DurableObject {
 		);
 
 		INSERT INTO settings (key, value) VALUES ('destination_url', '');
-		INSERT INTO referrals (referrer, count) VALUES ('www.google.com', 2);
-		INSERT INTO referrals (referrer, count) VALUES ('www.thetombomb.com', 6);
 		`);
 	}
 
@@ -59,11 +57,15 @@ export class UrlTracker extends DurableObject {
 		return result.value as string;
 	}
 
-	async insertUrl(value: string) {
-		const anything = this.sql.exec("UPDATE settings SET value = ? WHERE key = 'destination_url'", [value]);
-		// const anything = this.sql.exec("INSERT INTO settings (key, value) VALUES ('destination_url', ?)", [value]);
-		// return anything;
+	async updateDestinationUrl(value: string) {
+		this.sql.exec("UPDATE settings SET value = ? WHERE key = 'destination_url'", [value]);
+	}
 
+	async updateReferralTable(referralUrl: string) {
+		const updateResult = this.sql.exec("UPDATE referrals SET count = count + 1 WHERE referrer = ?;", [referralUrl]);
+		if(updateResult.rowsWritten === 0) {
+			this.sql.exec("INSERT INTO referrals (referrer, count) VALUES (?, 1)", [referralUrl]);
+		}
 	}
 
 	async getReferrals(): Promise<Record<string, SqlStorageValue>[]> {
@@ -87,8 +89,12 @@ export default {
 	 */
 	async fetch(request, env, ctx): Promise<Response> {
 		const url = new URL(request.url);
+
+		// Home Page
 		if (url.pathname === '/') {
 			return new Response(home, { headers: { 'Content-Type': 'text/html' } });
+
+		// Get Tracked URL
 		} else if (url.pathname === '/shorten' && request.method === 'POST') {
 			const formData = await request.formData();
 			const longUrl = formData.get('url') as string;
@@ -100,13 +106,15 @@ export default {
 			const shortCode = nanoid(8);
 			let id: DurableObjectId = env.URL_TRACKER.idFromName(shortCode);
 			let stub = env.URL_TRACKER.get(id);
-			await stub.insertUrl(longUrl);
+			await stub.updateDestinationUrl(longUrl);
 
 			const shortUrl = `${url.origin}/${shortCode}`;
 
 			return new Response(`<p>Shortened URL: <a href="${shortUrl}" target="_blank">${shortUrl}</a></p>`, {
 				headers: { 'Content-Type': 'text/html' },
 			});
+
+		// Admin Page
 		} else if (url.pathname.endsWith('admin')) {
 			const shortCode = url.pathname.split('/')[1];
 			let id: DurableObjectId = env.URL_TRACKER.idFromName(shortCode);
@@ -117,18 +125,25 @@ export default {
 			const adminPage = generateAdminPageHtml(destinationUrl, shortCode, referrals)
 			return new Response(adminPage, { headers: { 'Content-Type': 'text/html' } });
 
+		// Redirect
 		} else if (url.pathname.startsWith('/') && url.pathname.length > 8) {
-			console.log("Referrer: ", request.headers.get('Referer'));
+			let referringPage = request.headers.get('Referer');
 			const shortCode = url.pathname.substring(1);
 			let id: DurableObjectId = env.URL_TRACKER.idFromName(shortCode);
 			let stub = env.URL_TRACKER.get(id);
 			const longUrl = await stub.getDestinationUrl();
+
+			if(!referringPage) {
+				referringPage = 'Direct';
+			}
+			await stub.updateReferralTable(referringPage)
 
 			if (longUrl) {
 				return Response.redirect(longUrl, 302);
 			} else {
 				return new Response('URL not found', { status: 404 });
 			}
+		// Invalid URL
 		} else {
 			return new Response('Not Found', { status: 404 });
 		}
