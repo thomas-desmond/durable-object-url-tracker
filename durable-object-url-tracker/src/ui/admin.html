@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+  <head>
+	<title>Admin Page for ${detailsResult.key}</title>
+  </head>
+  <body>
+	<h1>Admin Page for ${detailsResult.key}</h1>
+	<p>Value: ${detailsResult.value}</p>
+	<h2>Referring Pages</h2>
+	<ul>
+	  ${
+		referrersResult.results.length
+		  ? referrersResult.results
+			  .map(row => `<li>${row.referrer}</li>`)
+			  .join('')
+		  : '<li>No referring pages found</li>'
+	  }
+	</ul>
+  </body>
+</html>

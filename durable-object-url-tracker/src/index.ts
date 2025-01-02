@@ -34,6 +34,15 @@ export class UrlTracker extends DurableObject {
 		  value TEXT
 		);
 
+		CREATE TABLE IF NOT EXISTS referrals(
+		  id    INTEGER PRIMARY KEY,
+		  referrer  TEXT,
+		  count INTEGER
+		);
+
+		INSERT INTO settings (key, value) VALUES ('destination_url', '');
+		INSERT INTO referrals (referrer, count) VALUES ('www.google.com', 2);
+		INSERT INTO referrals (referrer, count) VALUES ('www.thetombomb.com', 6);
 		`);
 	}
 
@@ -50,14 +59,19 @@ export class UrlTracker extends DurableObject {
 		return result.value as string;
 	}
 
-	async insertUrl(value: string){
-		// this.sql.exec("UPDATE settings SET value = ? WHERE key = 'destination_url'", [value]).toArray()[0];
-		this.sql.exec("INSERT INTO settings (key, value) VALUES ('destination_url', ?)", [value]).toArray()[0];
+	async insertUrl(value: string) {
+		this.sql.exec("UPDATE settings SET value = ? WHERE key = 'destination_url'", [value]).toArray()[0];
+	}
+
+	async getReferrals(): Promise<Record<string, SqlStorageValue>[]> {
+		const result = this.sql.exec('SELECT * FROM referrals').toArray();
+		return result;
 	}
 }
 
 import home from './ui/home.html';
-import { nanoid } from 'nanoid'
+import { nanoid } from 'nanoid';
+import { generateAdminPage as generateAdminPageHtml } from './lib/admin';
 
 export default {
 	/**
@@ -76,7 +90,7 @@ export default {
 			const formData = await request.formData();
 			const longUrl = formData.get('url') as string;
 
-			console.log("LONG: ", longUrl);
+			console.log('LONG: ', longUrl);
 
 			if (!longUrl) {
 				return new Response('Invalid URL', { status: 400 });
@@ -92,21 +106,33 @@ export default {
 			return new Response(`<p>Shortened URL: <a href="${shortUrl}" target="_blank">${shortUrl}</a></p>`, {
 				headers: { 'Content-Type': 'text/html' },
 			});
-		} else if (url.pathname.startsWith('/') && url.pathname.length > 8) {
+		} else if (url.pathname.endsWith('admin')) {
+			const shortCode = url.pathname.split('/')[1];
+			let id: DurableObjectId = env.URL_TRACKER.idFromName(shortCode);
+			let stub = env.URL_TRACKER.get(id);
+			const referrals = await stub.getReferrals() as { referrer: string, count: number}[]
+			const destinationUrl = await stub.getDestinationUrl();
 
-			console.log(request.headers)
+			console.log("Short Code: ", shortCode);
+			console.log("Referalllllll: ", referrals);
+
+			const adminPage = generateAdminPageHtml(destinationUrl, shortCode, referrals)
+			return new Response(adminPage, { headers: { 'Content-Type': 'text/html' } });
+
+		} else if (url.pathname.startsWith('/') && url.pathname.length > 8) {
+			console.log("HEADERS: ", request);
 			const shortCode = url.pathname.substring(1);
 			let id: DurableObjectId = env.URL_TRACKER.idFromName(shortCode);
 			let stub = env.URL_TRACKER.get(id);
 			const longUrl = await stub.getDestinationUrl();
 
 			if (longUrl) {
-			  return Response.redirect(longUrl, 302);
+				return Response.redirect(longUrl, 302);
 			} else {
-			  return new Response('URL not found', { status: 404 });
+				return new Response('URL not found', { status: 404 });
 			}
-		  } else {
+		} else {
 			return new Response('Not Found', { status: 404 });
-		  }
+		}
 	},
 } satisfies ExportedHandler<Env>;
